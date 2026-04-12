@@ -27,12 +27,6 @@ if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/bin/php" ]; then
     exit 0
 fi
 
-# root 권한 확인
-if [ "$(id -u)" -ne 0 ]; then
-    print_shell "오류: 이 스크립트는 root 권한으로 실행해야 합니다."
-    exit 1
-fi
-
 # Apache 설치 확인
 if [ ! -f "$APACHE_DIR/bin/apxs" ]; then
     print_shell "오류: Apache apxs를 찾을 수 없습니다: $APACHE_DIR/bin/apxs"

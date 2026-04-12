@@ -32,11 +32,11 @@ if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/bin/httpd" ]; then
     exit 0
 fi
 
-# root 권한 확인
-if [ "$(id -u)" -ne 0 ]; then
-    print_shell "오류: 이 스크립트는 root 권한으로 실행해야 합니다."
-    exit 1
-fi
+# # root 권한 확인
+# if [ "$(id -u)" -ne 0 ]; then
+#     print_shell "오류: 이 스크립트는 root 권한으로 실행해야 합니다."
+#     exit 1
+# fi
 
 # EPEL, PowerTools 리포지터리 활성화
 print_shell "리포지터리 설정 시작"
