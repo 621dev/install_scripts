@@ -4,10 +4,19 @@
 # 설치 경로: /usr/local/apache2
 
 # 로그 설정
-LOG_FILE="apache_install_2_4_66.log"
+mkdir -p ./log
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+LOG_FILE="./log/apache_install_2_4_66_${TIMESTAMP}.log"
+ERROR_LOG_FILE="./log/apache_install_2_4_66_error_${TIMESTAMP}.log"
 exec 3>&1               # fd3 = 터미널
-exec >> "$LOG_FILE" 2>&1  # stdout/stderr → 로그 파일만
-print_shell() { echo "$@" >&3; }  # 터미널에만 출력하는 함수
+exec > >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush() }' >> "$LOG_FILE")
+exec 2> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush() }' >> "$ERROR_LOG_FILE")
+print_shell() {
+    local msg="[$(date +"%Y-%m-%d %H:%M:%S")] $@"
+    echo "$msg" >&3        # 터미널 출력
+    echo "$msg" >> "$LOG_FILE"  # 로그 파일에도 기록
+}
+
 print_shell "===== apache2.4.x 설치 시작: $(date) ====="
 
 # 변수 설정
@@ -140,13 +149,17 @@ cd "$BUILD_SOURCE_DIR"
     --with-included-apr \
     --with-pcre=/usr \
     --with-mpm=event \
-    --enable-mods-shared=most
+    --enable-mods-shared=most || { print_shell "configure 실패, 종료합니다."; exit 1; }
 print_shell "configure 완료"
 
 # 컴파일
+COMPILE_START=$(date +%s)
 print_shell "Apache 컴파일 시작 (코어 수: $(nproc))"
 make -j$(nproc)
+COMPILE_END=$(date +%s)
+COMPILE_DURATION=$((COMPILE_END - COMPILE_START))
 print_shell "Apache 컴파일 완료"
+print_shell "컴파일 소요 시간: $((COMPILE_DURATION / 60))분 $((COMPILE_DURATION % 60))초 (${COMPILE_DURATION}초)"
 
 # 설치
 print_shell "Apache 설치 시작"
@@ -194,24 +207,41 @@ else
 fi
 print_shell "httpd.conf 기본 설정 수정 완료"
 
-# SSL 모듈 및 설정 활성화
-print_shell "SSL 모듈 활성화 시작"
+# 모듈 활성화
+print_shell "모듈 활성화 시작"
 sed -i \
     -e "s|^#LoadModule ssl_module|LoadModule ssl_module|" \
     -e "s|^#LoadModule socache_shmcb_module|LoadModule socache_shmcb_module|" \
     -e "s|^#LoadModule http2_module|LoadModule http2_module|" \
+    -e "s|^#LoadModule rewrite_module|LoadModule rewrite_module|" \
+    -e "s|^#LoadModule proxy_module|LoadModule proxy_module|" \
+    -e "s|^#LoadModule proxy_http_module|LoadModule proxy_http_module|" \
+    -e "s|^#LoadModule slotmem_shm_module|LoadModule slotmem_shm_module|" \
+    -e "s|^#LoadModule proxy_balancer_module|LoadModule proxy_balancer_module|" \
+    -e "s|^#LoadModule proxy_ajp_module|LoadModule proxy_ajp_module|" \
+    -e "s|^#LoadModule headers_module|LoadModule headers_module|" \
+    -e "s|^#LoadModule expires_module|LoadModule expires_module|" \
+    -e "s|^#LoadModule deflate_module|LoadModule deflate_module|" \
+    -e "s|^#LoadModule brotli_module|LoadModule brotli_module|" \
+    -e "s|^#LoadModule vhost_alias_module|LoadModule vhost_alias_module|" \
     -e "s|^#Include conf/extra/httpd-ssl.conf|Include conf/extra/httpd-ssl.conf|" \
     "$HTTPD_CONF"
-print_shell "SSL 모듈 활성화 완료"
+print_shell "모듈 활성화 완료"
+
+# httpd.conf 주석 제거
+print_shell "httpd.conf 주석 제거 시작"
+sed -i -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$HTTPD_CONF"
+print_shell "httpd.conf 주석 제거 완료"
 
 # 자체 서명 인증서 생성
 print_shell "자체 서명 인증서 생성 시작"
 mkdir -p "$INSTALL_DIR/conf/ssl"
+SERVER_IP=$(hostname -I | awk '{print $1}')
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout "$INSTALL_DIR/conf/ssl/server.key" \
     -out "$INSTALL_DIR/conf/ssl/server.crt" \
-    -subj "/C=KR/ST=Seoul/L=Seoul/O=TestOrg/CN=localhost" \
-    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+    -subj "/C=KR/ST=Seoul/L=Seoul/O=TestOrg/CN=$SERVER_IP" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:$SERVER_IP"
 print_shell "자체 서명 인증서 생성 완료"
 
 # ssl.conf 인증서 경로 업데이트
@@ -234,7 +264,7 @@ Documentation=man:apachectl(8)
 After=network.target remote-fs.target nss-lookup.target
 
 [Service]
-Type=notify
+Type=simple
 PIDFile=$INSTALL_DIR/logs/httpd.pid
 ExecStart=$INSTALL_DIR/bin/httpd -D FOREGROUND -k start
 ExecReload=$INSTALL_DIR/bin/httpd -k graceful
@@ -267,10 +297,8 @@ else
 fi
 
 print_shell "===== Apache 설치 완료: $(date) ====="
-print_shell ""
-print_shell "설치 후 작업:"
-print_shell "  1. 서비스 시작:    systemctl start httpd"
-print_shell "  2. 서비스 활성화:  systemctl enable httpd"
-print_shell "  3. 설정 문법 확인: $INSTALL_DIR/bin/httpd -t"
-print_shell "  4. 응답 확인:      curl -I http://localhost"
-print_shell "  5. HTTPS 확인:     curl -Ik https://localhost"
+print_shell "설치 후 작업"
+print_shell "환경 변수 적용(필수): source /etc/profile.d/apache.sh"
+print_shell "서비스 시작: systemctl start httpd"
+print_shell "응답 확인: curl -I http://$SERVER_IP"
+print_shell "HTTPS 확인: curl -Ik https://$SERVER_IP"

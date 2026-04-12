@@ -4,10 +4,18 @@
 # 설치 경로: /usr/local/php
 
 # 로그 설정
-LOG_FILE="php_install_8_5_4.log"
+mkdir -p ./log
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+LOG_FILE="./log/php_install_8_5_4_${TIMESTAMP}.log"
+ERROR_LOG_FILE="./log/php_install_8_5_4_error_${TIMESTAMP}.log"
 exec 3>&1               # fd3 = 터미널
-exec >> "$LOG_FILE" 2>&1  # stdout/stderr → 로그 파일만
-print_shell() { echo "$@" >&3; }  # 터미널에만 출력하는 함수
+exec > >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush() }' >> "$LOG_FILE") \
+     2> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush() }' >> "$ERROR_LOG_FILE")
+print_shell() {
+    local msg="[$(date +"%Y-%m-%d %H:%M:%S")] $@"
+    echo "$msg" >&3
+    echo "$msg" >> "$LOG_FILE"
+}
 print_shell "===== php8.5.x 설치 시작: $(date) ====="
 
 # 변수 설정
@@ -18,7 +26,8 @@ SHA256="4fef7f44eff3c18e329504cb0d3eb30b41cf54e2db05cb4ebe8b78fc37d38ce1"
 SOURCE_DIR="/usr/local/src/php-build"
 INSTALL_DIR="/usr/local/php"
 APACHE_DIR="/usr/local/apache2"
-MYSQL_SOCK="/var/lib/mysql/mysql.sock"
+MYSQL_HOST="${MYSQL_HOST:-192.168.0.244}"
+MYSQL_PORT="${MYSQL_PORT:-3306}"
 
 # PHP 설치 체크
 if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/bin/php" ]; then
@@ -33,14 +42,8 @@ if [ ! -f "$APACHE_DIR/bin/apxs" ]; then
     print_shell "Apache를 먼저 설치하세요 (install_source_apache2.4.x.sh)."
     exit 1
 fi
-print_shell "Apache 설치 확인 완료: $APACHE_DIR"
 
-# MySQL 소켓 확인
-if [ ! -S "$MYSQL_SOCK" ]; then
-    print_shell "경고: MySQL 소켓을 찾을 수 없습니다: $MYSQL_SOCK"
-    print_shell "MySQL이 실행 중이지 않거나 소켓 경로가 다를 수 있습니다."
-    print_shell "계속 진행하지만, php.ini에서 소켓 경로를 확인하세요."
-fi
+print_shell "MySQL 연결 대상: $MYSQL_HOST:$MYSQL_PORT (원격 DB 지원, 환경변수로 변경 가능)"
 
 # EPEL, PowerTools 리포지터리 활성화
 print_shell "리포지터리 설정 시작"
@@ -50,7 +53,6 @@ print_shell "리포지터리 설정 완료"
 
 # 의존성 패키지 설치
 print_shell "PHP 의존성 패키지 설치 시작"
-dnf update -y
 dnf install -y \
     gcc \
     gcc-c++ \
@@ -104,9 +106,8 @@ cd "$BUILD_SOURCE_DIR"
 ./configure \
     --prefix="$INSTALL_DIR" \
     --with-apxs2="$APACHE_DIR/bin/apxs" \
-    --with-mysql-sock="$MYSQL_SOCK" \
-    --with-mysqli \
-    --with-pdo-mysql=/usr/local/mysql \
+    --with-mysqli=mysqlnd \
+    --with-pdo-mysql=mysqlnd \
     --with-openssl \
     --with-curl \
     --with-zlib \
@@ -121,10 +122,7 @@ cd "$BUILD_SOURCE_DIR"
     --enable-exif \
     --enable-ftp \
     --enable-sockets \
-    --enable-fpm \
     --enable-zip \
-    --with-fpm-user=apache \
-    --with-fpm-group=apache \
     CFLAGS="-fPIE" \
     LDFLAGS="-pie"
 print_shell "configure 완료"
@@ -159,18 +157,12 @@ sed -i \
     -e "s|^;error_log =.*|error_log = /var/log/php_errors.log|" \
     "$PHP_INI"
 
-# MySQL 소켓 경로 설정 (없으면 추가)
-if grep -q "^pdo_mysql.default_socket" "$PHP_INI"; then
-    sed -i "s|^pdo_mysql.default_socket.*|pdo_mysql.default_socket = $MYSQL_SOCK|" "$PHP_INI"
-else
-    echo "pdo_mysql.default_socket = $MYSQL_SOCK" >> "$PHP_INI"
-fi
-
-if grep -q "^mysqli.default_socket" "$PHP_INI"; then
-    sed -i "s|^mysqli.default_socket.*|mysqli.default_socket = $MYSQL_SOCK|" "$PHP_INI"
-else
-    echo "mysqli.default_socket = $MYSQL_SOCK" >> "$PHP_INI"
-fi
+# MySQL 기본 호스트/포트 설정 (원격 DB 지원)
+{
+    echo "mysqli.default_host = $MYSQL_HOST"
+    echo "mysqli.default_port = $MYSQL_PORT"
+    echo "pdo_mysql.default_socket ="
+} >> "$PHP_INI"
 
 # OPcache 활성화
 sed -i \
@@ -182,12 +174,12 @@ sed -i \
 print_shell "php.ini 설정 완료: $PHP_INI"
 
 # 환경 변수 등록
-cat << 'EOF' > /etc/profile.d/php.sh
-export PHP_HOME=/usr/local/php
-export PATH=$PHP_HOME/bin:$PHP_HOME/sbin:$PATH
-EOF
-source /etc/profile.d/php.sh
-print_shell "환경 변수 등록 완료"
+# cat << 'EOF' > /etc/profile.d/php.sh
+# export PHP_HOME=/usr/local/php
+# export PATH=$PHP_HOME/bin:$PHP_HOME/sbin:$PATH
+# EOF
+# source /etc/profile.d/php.sh
+# print_shell "환경 변수 등록 완료"
 
 # Apache httpd.conf 연동 설정
 print_shell "Apache httpd.conf PHP 연동 설정 시작"
@@ -224,48 +216,6 @@ fi
 "$APACHE_DIR/bin/httpd" -t >&3
 print_shell "Apache 설정 문법 검사 완료"
 
-# PHP-FPM 서비스 파일 작성
-print_shell "PHP-FPM systemd 서비스 파일 작성 시작"
-
-# php-fpm.conf 기본 설정 복사
-if [ -f "$INSTALL_DIR/etc/php-fpm.conf.default" ]; then
-    cp "$INSTALL_DIR/etc/php-fpm.conf.default" "$INSTALL_DIR/etc/php-fpm.conf"
-fi
-if [ -f "$INSTALL_DIR/etc/php-fpm.d/www.conf.default" ]; then
-    cp "$INSTALL_DIR/etc/php-fpm.d/www.conf.default" "$INSTALL_DIR/etc/php-fpm.d/www.conf"
-fi
-
-cat << EOF > /etc/systemd/system/php-fpm.service
-[Unit]
-Description=PHP 8.5 FastCGI Process Manager
-Documentation=man:php-fpm(8)
-After=network.target
-
-[Service]
-Type=notify
-PIDFile=/var/run/php-fpm/php-fpm.pid
-ExecStart=$INSTALL_DIR/sbin/php-fpm --nodaemonize --fpm-config $INSTALL_DIR/etc/php-fpm.conf
-ExecReload=/bin/kill -USR2 \$MAINPID
-Restart=on-failure
-RestartSec=5s
-
-RuntimeDirectory=php-fpm
-RuntimeDirectoryMode=0755
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-print_shell "PHP-FPM systemd 서비스 파일 작성 완료"
-
 print_shell "===== PHP 설치 완료: $(date) ====="
-print_shell ""
-print_shell "설치 후 작업:"
-print_shell "  1. Apache 재시작:      systemctl restart httpd"
-print_shell "  2. PHP-FPM 시작:       systemctl start php-fpm"
-print_shell "  3. PHP-FPM 활성화:     systemctl enable php-fpm"
-print_shell "  4. PHP 동작 확인:"
-print_shell "       echo '<?php phpinfo(); ?>' > $APACHE_DIR/htdocs/phpinfo.php"
-print_shell "       curl -s http://localhost/phpinfo.php | grep 'PHP Version'"
-print_shell "  5. 확인 후 phpinfo.php 삭제 (보안):"
-print_shell "       rm $APACHE_DIR/htdocs/phpinfo.php"
+print_shell " php 버전 확인 : /usr/local/php/bin/php -v"
+print_shell " Apache 재시작 : systemctl restart httpd"

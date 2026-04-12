@@ -5,10 +5,18 @@
 # 빌드 및 설치는 /usr/local/mysql에 설치
 
 # 로그 설정
-LOG_FILE="mysql_install_8_4_8.log"
+mkdir -p ./log
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+LOG_FILE="./log/mysql_install_8_4_8_${TIMESTAMP}.log"
+ERROR_LOG_FILE="./log/mysql_install_8_4_8_error_${TIMESTAMP}.log"
 exec 3>&1               # fd3 = 터미널
-exec >> "$LOG_FILE" 2>&1  # stdout/stderr → 로그 파일만
-print_shell() { echo "$@" >&3; }  # 터미널에만 출력하는 함수
+exec > >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush() }' >> "$LOG_FILE") \
+     2> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush() }' >> "$ERROR_LOG_FILE")
+print_shell() {
+    local msg="[$(date +"%Y-%m-%d %H:%M:%S")] $@"
+    echo "$msg" >&3
+    echo "$msg" >> "$LOG_FILE"
+}
 print_shell "===== mysql 설치 시작: $(date) ====="
 
 # 변수 설정
@@ -125,9 +133,13 @@ cmake .. \
 print_shell "cmake 구성 완료"
 
 # 컴파일
+COMPILE_START=$(date +%s)
 print_shell "mysql 컴파일 시작 (코어 수: $(nproc))"
-ninja -j$(nproc)
+ninja -j$(nproc) 2>&1 | grep --line-buffered -E "^\[([0-9]+)/([0-9]+)\]" | awk '{ print $1, $2; fflush() }' >&3
+COMPILE_END=$(date +%s)
+COMPILE_DURATION=$((COMPILE_END - COMPILE_START))
 print_shell "mysql 컴파일 완료"
+print_shell "컴파일 소요 시간: $((COMPILE_DURATION / 60))분 $((COMPILE_DURATION % 60))초 (${COMPILE_DURATION}초)"
 
 # 설치
 print_shell "mysql 설치 시작"
@@ -214,7 +226,6 @@ cat << 'EOF' > /etc/profile.d/mysql.sh
 export PATH=/usr/local/mysql/bin:/usr/local/mysql/sbin:$PATH
 export LD_LIBRARY_PATH=/usr/local/mysql/lib:$LD_LIBRARY_PATH
 EOF
-source /etc/profile.d/mysql.sh
 print_shell "PATH 환경변수 설정 완료"
 
 # 데이터 디렉터리 초기화
@@ -224,9 +235,6 @@ print_shell "mysql 데이터 디렉터리 초기화 시작"
     --initialize-insecure \
     --user=mysql
 print_shell "mysql 데이터 디렉터리 초기화 완료"
-print_shell "  ※ 비밀번호 없이 초기화됨. 설치 후 즉시 root 비밀번호를 설정하세요:"
-print_shell "     mysql -u root --skip-password"
-print_shell "     ALTER USER 'root'@'localhost' IDENTIFIED BY '새비밀번호';"
 
 # systemd 서비스 파일 작성
 print_shell "systemd 서비스 파일 작성 시작"
@@ -274,8 +282,9 @@ else
 fi
 
 print_shell "===== MySQL 서비스 설치 완료: $(date) ====="
-print_shell ""
-print_shell "설치 후 작업:"
-print_shell "  1. 서비스 시작:    systemctl start mysqld"
-print_shell "  2. 서비스 활성화:  systemctl enable mysqld"
-print_shell "  3. root 비밀번호 설정: mysql -u root --skip-password"
+print_shell "설치 후 작업"
+print_shell " 환경 변수 적용(필수): source /etc/profile.d/mysql.sh"
+print_shell " 서비스 시작: systemctl start mysqld"
+print_shell " mysql 접속: mysql -u root --skip-password"
+print_shell " root 비밀번호 설정: ALTER USER 'root'@'localhost' IDENTIFIED BY '새비밀번호';"
+print_shell " 비밀번호 없이 초기화되었기 때문에 반드시 비밀번호를 설정해주셔야 됩니다."
