@@ -73,6 +73,7 @@ dnf install -y \
     wget
 print_shell "PHP 의존성 패키지 설치 완료"
 
+# ─────────────────────────────────────────────
 # PHP 소스 다운로드
 print_shell "PHP 소스 코드 다운로드 시작"
 mkdir -p "$SOURCE_DIR"
@@ -173,13 +174,12 @@ sed -i \
     "$PHP_INI"
 print_shell "php.ini 설정 완료: $PHP_INI"
 
-# 환경 변수 등록
+## 환경 변수 등록
 # cat << 'EOF' > /etc/profile.d/php.sh
 # export PHP_HOME=/usr/local/php
 # export PATH=$PHP_HOME/bin:$PHP_HOME/sbin:$PATH
 # EOF
-# source /etc/profile.d/php.sh
-# print_shell "환경 변수 등록 완료"
+# print_shell "환경 변수 등록 완료: /etc/profile.d/php.sh"
 
 # Apache httpd.conf 연동 설정
 print_shell "Apache httpd.conf PHP 연동 설정 시작"
@@ -208,7 +208,7 @@ fi
 
 # DirectoryIndex에 index.php 추가
 if grep -q "DirectoryIndex index.html" "$HTTPD_CONF"; then
-    sed -i "s|DirectoryIndex index.html|DirectoryIndex index.html index.php|" "$HTTPD_CONF"
+    sed -i "s|DirectoryIndex index.html|DirectoryIndex index.php index.html |" "$HTTPD_CONF"
     print_shell "DirectoryIndex에 index.php 추가 완료"
 fi
 
@@ -217,5 +217,6 @@ fi
 print_shell "Apache 설정 문법 검사 완료"
 
 print_shell "===== PHP 설치 완료: $(date) ====="
-print_shell " php 버전 확인 : /usr/local/php/bin/php -v"
-print_shell " Apache 재시작 : systemctl restart httpd"
+print_shell " php 버전 확인   : /usr/local/php/bin/php -v"
+print_shell " 환경 변수 적용  : source /etc/profile.d/php.sh"
+print_shell " Apache 재시작   : systemctl restart httpd"

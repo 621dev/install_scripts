@@ -27,7 +27,7 @@ SOURCE_DIR="/usr/local/src/wordpress-build"
 INSTALL_DIR="/usr/local/apache2/htdocs/wordpress"
 APACHE_DIR="/usr/local/apache2"
 
-# 데이터베이스 설정 (환경변수 오버라이드 지원)
+# 데이터베이스 설정
 DB_NAME="${DB_NAME:-wordpressDB}"
 DB_USER="${DB_USER:-wordpressuser}"
 DB_PASSWORD="${DB_PASSWORD:-1212}"
@@ -37,11 +37,6 @@ DB_COLLATE="utf8mb4_unicode_ci"
 TABLE_PREFIX="${TABLE_PREFIX:-blog_}"
 
 print_shell "DB 연결 대상: $DB_HOST (환경변수로 변경 가능)"
-
-# ─────────────────────────────────────────────
-# 1. 설치 전 검사
-# ─────────────────────────────────────────────
-print_shell "설치 전 검사 시작"
 
 # WordPress 중복 설치 체크
 if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/index.php" ]; then
@@ -73,36 +68,6 @@ fi
 
 print_shell "설치 전 검사 완료"
 
-# ─────────────────────────────────────────────
-# 2. PHP 필수 모듈 확인
-# ─────────────────────────────────────────────
-print_shell "PHP 필수 모듈 확인 시작"
-REQUIRED_MODULES=("curl" "gd" "mbstring" "openssl" "xml" "xmlreader" "xmlwriter")
-MISSING_MODULES=()
-
-for module in "${REQUIRED_MODULES[@]}"; do
-    if ! php -m 2>/dev/null | grep -qi "^${module}$"; then
-        MISSING_MODULES+=("$module")
-    fi
-done
-
-if [ ${#MISSING_MODULES[@]} -gt 0 ]; then
-    print_shell "경고: 다음 PHP 모듈이 누락되었습니다: ${MISSING_MODULES[*]}"
-    print_shell "WordPress 일부 기능이 정상 동작하지 않을 수 있습니다."
-fi
-
-# zip 모듈 별도 경고 (플러그인/테마 업로드에 필수)
-if ! php -m 2>/dev/null | grep -qi "^zip$"; then
-    print_shell "경고: PHP zip 모듈이 누락되었습니다. 플러그인/테마 업로드 시 필요합니다."
-    print_shell "설치 방법: cd /usr/local/src/php-build/php-*/ext/zip && phpize && ./configure && make && make install"
-    print_shell "설치 후: echo 'extension=zip.so' >> /usr/local/php/lib/php.ini && systemctl restart httpd"
-fi
-print_shell "PHP 필수 모듈 확인 완료"
-
-# ─────────────────────────────────────────────
-# 3. WordPress 소스 다운로드
-# ─────────────────────────────────────────────
-print_shell "WordPress 소스 코드 다운로드 시작"
 if [ ! -f "/tmp/$WORDPRESS_TAR" ]; then
     wget -P /tmp "$WORDPRESS_DOWNLOAD_URL"
     if [ $? -ne 0 ]; then
@@ -125,10 +90,6 @@ if [ "$WORDPRESS_SHA1" != "$ACTUAL_SHA1" ]; then
 fi
 print_shell "WordPress 소스 코드 무결성 검증 완료"
 
-# ─────────────────────────────────────────────
-# 4. 압축 해제 및 웹루트 복사
-# ─────────────────────────────────────────────
-print_shell "WordPress 소스 코드 압축 해제 시작"
 mkdir -p "$SOURCE_DIR"
 tar -xzf "/tmp/$WORDPRESS_TAR" -C "$SOURCE_DIR/"
 print_shell "WordPress 소스 코드 압축 해제 완료: $SOURCE_DIR/$WORDPRESS_DIR"
@@ -144,9 +105,6 @@ print_shell "WordPress 파일을 Apache 웹루트로 복사 시작: $INSTALL_DIR
 cp -r "$SOURCE_DIR/$WORDPRESS_DIR" "$HTDOCS_DIR/"
 print_shell "WordPress 파일 복사 완료: $INSTALL_DIR"
 
-# ─────────────────────────────────────────────
-# 5. wp-config.php 생성 및 DB 설정
-# ─────────────────────────────────────────────
 print_shell "wp-config.php 생성 시작"
 cp "$INSTALL_DIR/wp-config-sample.php" "$INSTALL_DIR/wp-config.php"
 if [ ! -f "$INSTALL_DIR/wp-config.php" ]; then
@@ -174,15 +132,13 @@ sed -i "s|^\$table_prefix = 'wp_';|\$table_prefix = '$TABLE_PREFIX';|" \
 print_shell "wp-config.php DB 설정 완료"
 print_shell "  DB_NAME=$DB_NAME / DB_USER=$DB_USER / DB_HOST=$DB_HOST / TABLE_PREFIX=$TABLE_PREFIX"
 
-# ─────────────────────────────────────────────
-# 6. 보안 키/솔트 자동 생성
-# ─────────────────────────────────────────────
 print_shell "WordPress 보안 키/솔트 생성 시작"
 SALT_DATA=$(wget -q -O - "https://api.wordpress.org/secret-key/1.1/salt/" 2>/dev/null)
 
 if [ -n "$SALT_DATA" ]; then
-    START_LINE=$(grep -n "define('AUTH_KEY'" "$INSTALL_DIR/wp-config.php" | head -1 | cut -d: -f1)
-    END_LINE=$(grep -n "define('NONCE_SALT'" "$INSTALL_DIR/wp-config.php" | tail -1 | cut -d: -f1)
+    START_LINE=$(grep -n "define( 'AUTH_KEY'" "$INSTALL_DIR/wp-config.php" | head -1 | cut -d: -f1)
+    END_LINE=$(sed -n "/define( 'NONCE_SALT'/=" "$INSTALL_DIR/wp-config.php" | tail -1)
+
 
     if [ -n "$START_LINE" ] && [ -n "$END_LINE" ]; then
         # 기존 키/솔트 라인 삭제 후 새 데이터 삽입
@@ -209,9 +165,6 @@ else
     print_shell "  보안 강화를 위해 나중에 수동으로 설정하세요: https://api.wordpress.org/secret-key/1.1/salt/"
 fi
 
-# ─────────────────────────────────────────────
-# 7. 파일 권한 설정
-# ─────────────────────────────────────────────
 print_shell "WordPress 파일 권한 설정 시작"
 
 # 소유자를 apache:apache 로 변경
@@ -237,10 +190,16 @@ print_shell "wp-content 권한 설정 완료: u=rwx,g=rx,o=rx"
 
 print_shell "WordPress 파일 권한 설정 완료"
 
-# ─────────────────────────────────────────────
-# 8. httpd.conf AllowOverride 설정
-# ─────────────────────────────────────────────
-print_shell "httpd.conf WordPress 디렉토리 설정 시작"
+print_shell "httpd.conf WordPress 설정 시작"
+
+# DocumentRoot를 wordpress 디렉토리로 변경 (http://서버IP/ 로 바로 접속)
+if grep -q "DocumentRoot \"$APACHE_DIR/htdocs\"" "$HTTPD_CONF"; then
+    sed -i "s|DocumentRoot \"$APACHE_DIR/htdocs\"|DocumentRoot \"$INSTALL_DIR\"|" "$HTTPD_CONF"
+    sed -i "s|<Directory \"$APACHE_DIR/htdocs\">|<Directory \"$INSTALL_DIR\">|" "$HTTPD_CONF"
+    print_shell "DocumentRoot 변경 완료: $INSTALL_DIR"
+else
+    print_shell "DocumentRoot 이미 변경됨 (스킵)"
+fi
 
 # wordpress 디렉토리 블록 중복 확인
 if ! grep -q "htdocs/wordpress" "$HTTPD_CONF"; then
@@ -258,11 +217,8 @@ else
     print_shell "WordPress 디렉토리 설정 이미 존재, 스킵"
 fi
 
-print_shell "httpd.conf WordPress 디렉토리 설정 완료"
+print_shell "httpd.conf WordPress 설정 완료"
 
-# ─────────────────────────────────────────────
-# 9. .htaccess 파일 생성
-# ─────────────────────────────────────────────
 print_shell ".htaccess 파일 생성 시작"
 
 cat << 'HTACCESSEOF' > "$INSTALL_DIR/.htaccess"
@@ -287,9 +243,6 @@ else
     exit 1
 fi
 
-# ─────────────────────────────────────────────
-# 완료 안내
-# ─────────────────────────────────────────────
 print_shell "===== WordPress 6.9.4 설치 완료: $(date) ====="
 print_shell ""
 print_shell "[ 웹 설치 절차 ]"
