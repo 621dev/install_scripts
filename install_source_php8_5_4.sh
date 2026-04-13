@@ -26,7 +26,7 @@ SHA256="4fef7f44eff3c18e329504cb0d3eb30b41cf54e2db05cb4ebe8b78fc37d38ce1"
 SOURCE_DIR="/usr/local/src/php-build"
 INSTALL_DIR="/usr/local/php"
 APACHE_DIR="/usr/local/apache2"
-MYSQL_HOST="${MYSQL_HOST:-192.168.0.244}"
+MYSQL_HOST="${MYSQL_HOST:-192.168.0.239}"
 MYSQL_PORT="${MYSQL_PORT:-3306}"
 
 # PHP 설치 체크
@@ -218,5 +218,4 @@ print_shell "Apache 설정 문법 검사 완료"
 
 print_shell "===== PHP 설치 완료: $(date) ====="
 print_shell " php 버전 확인   : /usr/local/php/bin/php -v"
-print_shell " 환경 변수 적용  : source /etc/profile.d/php.sh"
 print_shell " Apache 재시작   : systemctl restart httpd"

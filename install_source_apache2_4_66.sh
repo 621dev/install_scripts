@@ -4,10 +4,11 @@
 # 설치 경로: /usr/local/apache2
 
 # 로그 설정
-mkdir -p ./log
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+mkdir -p "$SCRIPT_DIR/log"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE="./log/apache_install_2_4_66_${TIMESTAMP}.log"
-ERROR_LOG_FILE="./log/apache_install_2_4_66_error_${TIMESTAMP}.log"
+LOG_FILE="$SCRIPT_DIR/log/apache_install_2_4_66_${TIMESTAMP}.log"
+ERROR_LOG_FILE="$SCRIPT_DIR/log/apache_install_2_4_66_error_${TIMESTAMP}.log"
 exec 3>&1               # fd3 = 터미널
 exec > >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush() }' >> "$LOG_FILE")
 exec 2> >(awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush() }' >> "$ERROR_LOG_FILE")
@@ -71,19 +72,23 @@ dnf install -y \
 print_shell "필수 라이브러리 설치 완료"
 
 # nghttp2-devel 소스 설치 (HTTP/2 지원)
-print_shell "nghttp2 설치 확인"
-if ldconfig -p | grep -q "libnghttp2"; then
-    print_shell "nghttp2 라이브러리 이미 존재, 설치 생략"
+NGHTTP2_MIN_VERSION="1.46.0"
+print_shell "nghttp2 설치 확인 (최소 버전: $NGHTTP2_MIN_VERSION)"
+if pkg-config --exists --atleast-version="$NGHTTP2_MIN_VERSION" libnghttp2 2>/dev/null; then
+    INSTALLED_VER=$(pkg-config --modversion libnghttp2)
+    print_shell "nghttp2 $INSTALLED_VER 이미 설치됨 (조건 충족), 설치 생략"
 else
-    print_shell "nghttp2 미설치, 소스 설치 시작"
+    INSTALLED_VER=$(pkg-config --modversion libnghttp2 2>/dev/null || echo "미설치")
+    print_shell "nghttp2 버전 부족 또는 미설치 (현재: $INSTALLED_VER), 소스 설치 시작"
     mkdir -p /usr/local/src/nghttp2-build
     wget -P /tmp "$NGHTTP2_DOWNLOAD_URL"
     tar -xzf "/tmp/$NGHTTP2_TAR" -C /usr/local/src/nghttp2-build/
     (cd "/usr/local/src/nghttp2-build/$NGHTTP2_DIR" && \
         ./configure --prefix=/usr && \
         make -j$(nproc) && \
-        make install)
-    print_shell "nghttp2 소스 설치 완료"
+        make install && \
+        ldconfig)
+    print_shell "nghttp2 $NGHTTP2_DIR 소스 설치 완료"
 fi
 
 # Apache 소스 다운로드
