@@ -19,7 +19,7 @@ print_shell() {
 print_shell "===== php8.5.x 설치 시작: $(date) ====="
 
 # 변수 설정
-PHP_DOWNLOAD_URL="https://www.php.net/distributions/php-8.5.4.tar.gz"
+PHP_DOWNLOAD_URL="file:///tmp/php-8.5.4.tar.gz"
 PHP_TAR="php-8.5.4.tar.gz"
 PHP_DIR="php-8.5.4"
 SHA256="4fef7f44eff3c18e329504cb0d3eb30b41cf54e2db05cb4ebe8b78fc37d38ce1"

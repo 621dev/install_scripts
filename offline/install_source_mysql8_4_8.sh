@@ -20,8 +20,8 @@ print_shell() {
 print_shell "===== mysql 설치 시작: $(date) ====="
 
 # 변수 설정
-PERL_DOWNLOAD_URL="https://www.cpan.org/src/5.0/perl-5.42.2.tar.gz"
-MYSQL_DOWNLOAD_URL="https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-8.4.8.tar.gz"
+PERL_DOWNLOAD_URL="https://repo.local/sources/perl-5.42.2.tar.gz"
+MYSQL_DOWNLOAD_URL="https://repo.local/sources/mysql-8.4.8.tar.gz"
 MYSQL_TAR="mysql-8.4.8.tar.gz"
 SOURCE_DIR="/usr/local/src/mysql-build"
 INSTALL_DIR="/usr/local/mysql"
